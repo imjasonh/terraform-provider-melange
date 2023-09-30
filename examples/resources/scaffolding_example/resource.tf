@@ -1,3 +1,3 @@
-resource "scaffolding_example" "example" {
+resource "melange_build" "example" {
   configurable_attribute = "some-value"
 }
