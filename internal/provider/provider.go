@@ -5,13 +5,12 @@ package provider
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
-	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
 // Ensure Provider satisfies various provider interfaces.
@@ -20,11 +19,19 @@ var _ provider.Provider = &Provider{}
 // Provider defines the provider implementation.
 type Provider struct {
 	version string
+
+	repositories, keyring, archs []string
 }
 
 // ProviderModel describes the provider data model.
 type ProviderModel struct {
-	Endpoint types.String `tfsdk:"endpoint"`
+	ExtraRepositories []string `tfsdk:"extra_repositories"`
+	ExtraKeyring      []string `tfsdk:"extra_keyring"`
+	DefaultArchs      []string `tfsdk:"default_archs"`
+}
+
+type ProviderOpts struct {
+	repositories, keyring, archs []string
 }
 
 func (p *Provider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -35,9 +42,20 @@ func (p *Provider) Metadata(ctx context.Context, req provider.MetadataRequest, r
 func (p *Provider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
-			"endpoint": schema.StringAttribute{
-				MarkdownDescription: "Example provider attribute",
-				Optional:            true,
+			"extra_repositories": schema.ListAttribute{
+				Description: "Additional repositories to search for packages",
+				Optional:    true,
+				ElementType: basetypes.StringType{},
+			},
+			"extra_keyring": schema.ListAttribute{
+				Description: "Additional keys to use for package verification",
+				Optional:    true,
+				ElementType: basetypes.StringType{},
+			},
+			"default_archs": schema.ListAttribute{
+				Description: "Default architectures to build for",
+				Optional:    true,
+				ElementType: basetypes.StringType{},
 			},
 		},
 	}
@@ -45,20 +63,21 @@ func (p *Provider) Schema(ctx context.Context, req provider.SchemaRequest, resp 
 
 func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	var data ProviderModel
-
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Configuration values are now available.
-	// if data.Endpoint.IsNull() { /* ... */ }
+	opts := &ProviderOpts{
+		// This is only for testing, so we can inject provider config
+		repositories: append(p.repositories, data.ExtraRepositories...),
+		keyring:      append(p.keyring, data.ExtraKeyring...),
+		archs:        append(p.archs, data.DefaultArchs...),
+	}
 
-	// Example client configuration for data sources and resources
-	client := http.DefaultClient
-	resp.DataSourceData = client
-	resp.ResourceData = client
+	// Make provider opts available to resources and data sources.
+	resp.ResourceData = opts
+	resp.DataSourceData = opts
 }
 
 func (p *Provider) Resources(ctx context.Context) []func() resource.Resource {
@@ -69,7 +88,8 @@ func (p *Provider) Resources(ctx context.Context) []func() resource.Resource {
 
 func (p *Provider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
-		NewExampleDataSource,
+		NewConfigDataSource,
+		NewGraphDataSource,
 	}
 }
 

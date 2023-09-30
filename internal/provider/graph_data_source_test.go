@@ -13,20 +13,16 @@ func TestAccExampleDataSource(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
-			// Read testing
-			{
-				Config: testAccExampleDataSourceConfig,
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("data.melange_graph.test", "id", "example-id"),
-				),
-			},
+		Steps: []resource.TestStep{{
+			Config: `
+data "melange_graph" "graph" {
+	configs = []
+}
+`,
+			Check: resource.ComposeAggregateTestCheckFunc(
+			// TODO
+			),
+		},
 		},
 	})
 }
-
-const testAccExampleDataSourceConfig = `
-data "melange_graph" "test" {
-  configurable_attribute = "example"
-}
-`
