@@ -5,15 +5,23 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 
+	"chainguard.dev/melange/pkg/build"
+	"chainguard.dev/melange/pkg/config"
+	"github.com/chainguard-dev/terraform-provider-apko/reflect"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"golang.org/x/sync/errgroup"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -31,9 +39,8 @@ type BuildResource struct {
 
 // BuildResourceModel describes the resource data model.
 type BuildResourceModel struct {
-	ConfigurableAttribute types.String `tfsdk:"configurable_attribute"`
-	Defaulted             types.String `tfsdk:"defaulted"`
-	Id                    types.String `tfsdk:"id"`
+	Config types.Object `tfsdk:"config"`
+	Id     types.String `tfsdk:"id"`
 }
 
 func (r *BuildResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -46,22 +53,15 @@ func (r *BuildResource) Schema(ctx context.Context, req resource.SchemaRequest, 
 		MarkdownDescription: "Example resource",
 
 		Attributes: map[string]schema.Attribute{
-			"configurable_attribute": schema.StringAttribute{
-				MarkdownDescription: "Example configurable attribute",
-				Optional:            true,
-			},
-			"defaulted": schema.StringAttribute{
-				MarkdownDescription: "Example configurable attribute with default value",
-				Optional:            true,
-				Computed:            true,
-				Default:             stringdefault.StaticString("example value when not configured"),
+			"config": schema.ObjectAttribute{
+				MarkdownDescription: "Parsed melange config",
+				Required:            true,
+				AttributeTypes:      configSchema.AttrTypes,
 			},
 			"id": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "Example identifier",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
+				MarkdownDescription: "Identifier of the resource",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 		},
 	}
@@ -88,9 +88,13 @@ func (r *BuildResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
-	// For the purposes of this example code, hardcoding a response value to
-	// save into the Terraform state.
-	data.Id = types.StringValue("example-id")
+	id, err := doBuild(ctx, data)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", err.Error())
+		return
+	}
+
+	data.Id = types.StringValue(id)
 
 	// Write logs using the tflog package
 	// Documentation: https://terraform.io/plugin/log
@@ -132,4 +136,71 @@ func (r *BuildResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 
 func (r *BuildResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+func doBuild(ctx context.Context, data BuildResourceModel) (string, error) {
+	var cfg config.Configuration
+	if diags := reflect.AssignValue(data.Config, &cfg); diags.HasError() {
+		return "", fmt.Errorf("assigning value: %v", diags.Errors())
+	}
+
+	// TODO: support force-overwrite, so you don't have to rm the package or bump the epoch while testing locally.
+
+	var bcs []*build.Build
+	for _, arch := range cfg.Environment.Archs {
+		// See if we already have the package built.
+		apk := fmt.Sprintf("%s-%s-r%d.apk", cfg.Package.Name, cfg.Package.Version, cfg.Package.Epoch)
+		apkPath := filepath.Join("./packages", arch.ToAPK(), apk)
+		if _, err := os.Stat(apkPath); err == nil {
+			tflog.Trace(ctx, fmt.Sprintf("skipping %s, already built", apkPath))
+			continue
+		}
+
+		// TODO: --dir
+		sdir := filepath.Join("./", cfg.Package.Name)
+		if _, err := os.Stat(sdir); os.IsNotExist(err) {
+			if err := os.MkdirAll(sdir, os.ModePerm); err != nil {
+				return "", fmt.Errorf("creating source directory %s: %v", sdir, err)
+			}
+		} else if err != nil {
+			return "", fmt.Errorf("creating source directory: %v", err)
+		}
+
+		tflog.Trace(ctx, fmt.Sprintf("will build %s for %s", cfg.Package.Name, arch))
+		bc, err := build.New(ctx,
+			build.WithArch(arch),
+			// TODO: Need to either write this file, or make Melange accept the decoded config, since the config might be coming from HCL.
+			build.WithConfig(cfg.Package.Name+".yaml"),
+			build.WithPipelineDir("./pipelines"),                 // TODO: --dir
+			build.WithEnvFile(fmt.Sprintf("build-%s.env", arch)), // TODO: --dir
+			build.WithOutDir("./packages"),                       // TODO: --dir
+			//build.WithSigningKey(filepath.Join(t.dir, "local-melange.rsa")), // TODO
+			//build.WithRunner("docker"), // TODO
+			//build.WithNamespace("wolfi"), // TODO
+			build.WithLogPolicy([]string{"builtin:stderr"}), // TODO: log dir instead, TF will swallow stderr
+			build.WithSourceDir(sdir),
+		)
+		if err != nil {
+			return "", fmt.Errorf("building %s for %s: %w", cfg.Package.Name, arch, err)
+		}
+		bcs = append(bcs, bc)
+	}
+	var errg errgroup.Group
+	for _, bc := range bcs {
+		bc := bc
+		errg.Go(func() error {
+			return bc.BuildPackage(ctx)
+		})
+	}
+	if err := errg.Wait(); err != nil {
+		return "", err
+	}
+
+	// ID is the sha256 of the JSON-serialized input config,
+	// to ensure the resource is updated if the changes.
+	b, err := json.Marshal(data.Config)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(b)), nil
 }

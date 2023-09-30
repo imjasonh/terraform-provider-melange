@@ -5,6 +5,9 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -47,6 +50,13 @@ func (d *GraphDataSource) Schema(ctx context.Context, req datasource.SchemaReque
 					AttrTypes: configSchema.AttrTypes,
 				},
 			},
+			"deps": schema.MapAttribute{
+				MarkdownDescription: "Map of dependencies: this -> [needs]",
+				Computed:            true,
+				ElementType: basetypes.ListType{
+					ElemType: basetypes.StringType{},
+				},
+			},
 			"id": schema.StringAttribute{
 				MarkdownDescription: "Graph identifier",
 				Computed:            true,
@@ -76,7 +86,14 @@ func (d *GraphDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 		return
 	}
 
-	data.Id = types.StringValue("example-id")
+	// ID is the sha256 of the JSON-serialized input configs,
+	// to ensure the data source changes if any config changes.
+	b, err := json.Marshal(data.Configs)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", "failed to marshal configs")
+		return
+	}
+	data.Id = types.StringValue(fmt.Sprintf("%x", sha256.Sum256(b)))
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)

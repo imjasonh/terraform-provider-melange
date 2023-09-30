@@ -4,53 +4,49 @@
 package provider
 
 import (
-	"fmt"
+	"runtime"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
 func TestAccBuildResource(t *testing.T) {
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		Steps: []resource.TestStep{
-			// Create and Read testing
-			{
-				Config: testAccExampleResourceConfig("one"),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("melange_build.build", "configurable_attribute", "one"),
-					resource.TestCheckResourceAttr("melange_build.build", "defaulted", "example value when not configured"),
-					resource.TestCheckResourceAttr("melange_build.build", "id", "example-id"),
-				),
-			},
-			// ImportState testing
-			{
-				ResourceName:      "melange_build.build",
-				ImportState:       true,
-				ImportStateVerify: true,
-				// This is not normally necessary, but is here because this
-				// example code does not have an actual upstream service.
-				// Once the Read method is able to refresh information from
-				// the upstream service, this can be removed.
-				ImportStateVerifyIgnore: []string{"configurable_attribute", "defaulted"},
-			},
-			// Update and Read testing
-			{
-				Config: testAccExampleResourceConfig("two"),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("melange_build.build", "configurable_attribute", "two"),
-				),
-			},
-			// Delete testing automatically occurs in TestCase
+		ProtoV6ProviderFactories: map[string]func() (tfprotov6.ProviderServer, error){
+			"melange": providerserver.NewProtocol6WithError(&Provider{
+				archs: []string{runtime.GOARCH},
+			}),
 		},
-	})
+		Steps: []resource.TestStep{{
+			// based on https://github.com/chainguard-dev/melange/blob/main/examples/minimal.yaml
+			Config: `
+data "melange_config" "minimal" {
+	config_contents = <<EOF
+package:
+  name: minimal
+  version: 0.0.1
+  description: a very basic melange example
+environment:
+  contents:
+    repositories:
+      - https://dl-cdn.alpinelinux.org/alpine/edge/main
+    packages:
+      - alpine-baselayout-data
+      - busybox
+pipeline:
+  - runs: echo "hello"
+EOF
 }
 
-func testAccExampleResourceConfig(configurableAttribute string) string {
-	return fmt.Sprintf(`
 resource "melange_build" "build" {
-  configurable_attribute = %[1]q
-}
-`, configurableAttribute)
+	config = data.melange_config.minimal.config
+}`,
+			Check: resource.ComposeAggregateTestCheckFunc(
+				resource.TestCheckResourceAttr("melange_build.build", "config.package.name", "minimal"),
+				resource.TestCheckResourceAttr("melange_build.build", "id", "minimal-0.0.1-r0"),
+			),
+		}},
+	})
 }

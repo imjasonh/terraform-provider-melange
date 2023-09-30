@@ -11,7 +11,6 @@ import (
 
 func TestAccConfigDataSource(t *testing.T) {
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{{
 			// based on https://github.com/chainguard-dev/melange/blob/main/examples/minimal.yaml
