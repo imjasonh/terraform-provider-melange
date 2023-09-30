@@ -3,8 +3,9 @@ module github.com/imjasonh/terraform-provider-melange
 go 1.21
 
 // export-reflect branch: https://github.com/chainguard-dev/terraform-provider-apko/pull/175
-//replace github.com/chainguard-dev/terraform-provider-apko => github.com/imjasonh/terraform-provider-apko v0.0.0-20230930141352-be17bb899098
-replace github.com/chainguard-dev/terraform-provider-apko => ../terraform-provider-apko
+replace github.com/chainguard-dev/terraform-provider-apko => github.com/imjasonh/terraform-provider-apko v0.0.0-20230930185302-facbc9ed02ae
+
+//replace github.com/chainguard-dev/terraform-provider-apko => ../terraform-provider-apko
 
 // uint32 branch
 replace chainguard.dev/melange => github.com/imjasonh/melange v0.0.0-20230930145918-46e772c9a35c
