@@ -49,7 +49,8 @@ resource "melange_build" "build" {
 }`,
 			Check: resource.ComposeAggregateTestCheckFunc(
 				resource.TestCheckResourceAttr("melange_build.build", "config.package.name", "minimal"),
-				//resource.TestCheckResourceAttr("melange_build.build", "id", "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"),
+				resource.TestCheckResourceAttr("melange_build.build", "config.package.epoch", "3"),
+				resource.TestCheckResourceAttr("melange_build.build", "id", "2966ff23365b2bfb14798021109424102419b989b044778d5484297ade1b201b"),
 			),
 		}},
 	})
@@ -90,4 +91,56 @@ resource "melange_build" "build" {
 		t.Errorf("checksum mismatch: %v != %v", idx.Packages[0].Checksum, pkg.Checksum)
 	}
 	// TODO(jason): Check that index is signed with the key.
+
+	// Update the resource to bump the epoch.
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: providerFactories,
+		Steps: []resource.TestStep{{
+			Config: `
+data "melange_config" "minimal" {
+	config_contents = file("${path.module}/testdata/minimal.yaml")
+}
+
+// Simulate bumping the epoch.
+locals {
+	updated = merge(data.melange_config.minimal.config, {
+		package = {
+			name = "minimal"
+			version = "0.0.1"
+			epoch = 4
+		}
+	})
+}
+
+resource "melange_build" "build" {
+	config          = local.updated
+	config_contents = yamlencode(local.updated)
+}`,
+			Check: resource.ComposeAggregateTestCheckFunc(
+				resource.TestCheckResourceAttr("melange_build.build", "config.package.name", "minimal"),
+				resource.TestCheckResourceAttr("melange_build.build", "config.package.epoch", "4"),
+				resource.TestCheckResourceAttr("melange_build.build", "id", "1e44061d052789d741503299f4bb0fa37311dfb9df24f373994e6b95c0fe664c"),
+			),
+		}},
+	})
+
+	// Check the new apk.
+	{
+		fn := fmt.Sprintf("packages/%s/minimal-0.0.1-r4.apk", arch)
+		f, err := os.Open(fn)
+		if err != nil {
+			t.Fatalf("failed to open apk: %v", err)
+		}
+		defer f.Close()
+		pkg, err := repository.ParsePackage(f)
+		if err != nil {
+			t.Fatalf("failed to parse apk: %v", err)
+		}
+		if pkg.Name != "minimal" {
+			t.Errorf("unexpected package name: %v", pkg.Name)
+		}
+		if pkg.Version != "0.0.1-r4" {
+			t.Errorf("unexpected package version: %v", pkg.Version)
+		}
+	}
 }

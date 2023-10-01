@@ -92,17 +92,19 @@ func (r *BuildResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
-	id, err := r.doBuild(ctx, data)
-	if err != nil {
+	if err := r.doBuild(ctx, data); err != nil {
 		resp.Diagnostics.AddError("Client Error", err.Error())
 		return
 	}
 
-	data.Id = types.StringValue(id)
-
-	// Write logs using the tflog package
-	// Documentation: https://terraform.io/plugin/log
-	tflog.Trace(ctx, "created a resource")
+	// ID is the sha256 of the JSON-serialized input config,
+	// to ensure the resource is updated if the changes.
+	b, err := json.Marshal(data.Config.String())
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", err.Error())
+		return
+	}
+	data.Id = types.StringValue(fmt.Sprintf("%x", sha256.Sum256(b)))
 
 	// Save data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -115,6 +117,15 @@ func (r *BuildResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		return
 	}
 
+	// ID is the sha256 of the JSON-serialized input config,
+	// to ensure the resource is updated if the changes.
+	b, err := json.Marshal(data.Config.String())
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", err.Error())
+		return
+	}
+	data.Id = types.StringValue(fmt.Sprintf("%x", sha256.Sum256(b)))
+
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -126,6 +137,20 @@ func (r *BuildResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 
+	if err := r.doBuild(ctx, data); err != nil {
+		resp.Diagnostics.AddError("Client Error", err.Error())
+		return
+	}
+
+	// ID is the sha256 of the JSON-serialized input config,
+	// to ensure the resource is updated if the changes.
+	b, err := json.Marshal(data.Config.String())
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", err.Error())
+		return
+	}
+	data.Id = types.StringValue(fmt.Sprintf("%x", sha256.Sum256(b)))
+
 	// Save updated data into Terraform state
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -136,16 +161,17 @@ func (r *BuildResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	// Nothing to delete.
 }
 
 func (r *BuildResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func (r *BuildResource) doBuild(ctx context.Context, data BuildResourceModel) (string, error) {
+func (r *BuildResource) doBuild(ctx context.Context, data BuildResourceModel) error {
 	var cfg Configuration
 	if diags := reflect.AssignValue(data.Config, &cfg); diags.HasError() {
-		return "", fmt.Errorf("assigning value: %v", diags.Errors())
+		return fmt.Errorf("assigning value: %v", diags.Errors())
 	}
 
 	// TODO: support force-overwrite, so you don't have to rm the package or bump the epoch while testing locally.
@@ -164,20 +190,20 @@ func (r *BuildResource) doBuild(ctx context.Context, data BuildResourceModel) (s
 		sdir := filepath.Join(r.popts.dir, cfg.Package.Name)
 		if _, err := os.Stat(sdir); os.IsNotExist(err) {
 			if err := os.MkdirAll(sdir, os.ModePerm); err != nil {
-				return "", fmt.Errorf("creating source directory %s: %v", sdir, err)
+				return fmt.Errorf("creating source directory %s: %v", sdir, err)
 			}
 		} else if err != nil {
-			return "", fmt.Errorf("creating source directory: %v", err)
+			return fmt.Errorf("creating source directory: %v", err)
 		}
 
 		// Write the config to a temp file.
 		// TODO(jason): This is kind of gross, but Melange's build API requires a file path.
 		tmp, err := os.CreateTemp("", fmt.Sprintf("%s-*.yaml", cfg.Package.Name))
 		if err != nil {
-			return "", fmt.Errorf("creating temporary file: %v", err)
+			return fmt.Errorf("creating temporary file: %v", err)
 		}
 		if err := os.WriteFile(tmp.Name(), []byte(data.ConfigContents.ValueString()), 0644); err != nil {
-			return "", fmt.Errorf("writing config to temporary file: %v", err)
+			return fmt.Errorf("writing config to temporary file: %v", err)
 		}
 
 		tflog.Trace(ctx, fmt.Sprintf("will build %s for %s", cfg.Package.Name, arch))
@@ -195,7 +221,7 @@ func (r *BuildResource) doBuild(ctx context.Context, data BuildResourceModel) (s
 			build.WithGenerateIndex(true),
 		)
 		if err != nil {
-			return "", fmt.Errorf("building %s for %s: %w", cfg.Package.Name, arch, err)
+			return fmt.Errorf("building %s for %s: %w", cfg.Package.Name, arch, err)
 		}
 		bcs = append(bcs, bc)
 	}
@@ -207,14 +233,7 @@ func (r *BuildResource) doBuild(ctx context.Context, data BuildResourceModel) (s
 		})
 	}
 	if err := errg.Wait(); err != nil {
-		return "", err
+		return err
 	}
-
-	// ID is the sha256 of the JSON-serialized input config,
-	// to ensure the resource is updated if the changes.
-	b, err := json.Marshal(data.Config)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("%x", sha256.Sum256(b)), nil
+	return nil
 }
