@@ -20,6 +20,10 @@ Example resource
 - `config` (Object) Parsed melange config (see [below for nested schema](#nestedatt--config))
 - `config_contents` (String) The raw contents of the melange configuration.
 
+### Optional
+
+- `force_update` (Boolean) Force a rebuild of the package, even if it already exists.
+
 ### Read-Only
 
 - `id` (String) Identifier of the resource

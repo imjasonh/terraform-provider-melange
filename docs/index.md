@@ -27,3 +27,6 @@ provider "scaffolding" {
 - `dir` (String) Directory to use for building packages
 - `extra_keyring` (List of String) Additional keys to use for package verification
 - `extra_repositories` (List of String) Additional repositories to search for packages
+- `namespace` (String) The namespace to use for the package
+- `runner` (String) The runner to use for running the build
+- `signing_key` (String) The path to the RSA private key used to sign the package.
