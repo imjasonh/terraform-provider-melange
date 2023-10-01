@@ -24,5 +24,6 @@ provider "scaffolding" {
 ### Optional
 
 - `default_archs` (List of String) Default architectures to build for
+- `dir` (String) Directory to use for building packages
 - `extra_keyring` (List of String) Additional keys to use for package verification
 - `extra_repositories` (List of String) Additional repositories to search for packages
