@@ -5,10 +5,7 @@ package:
   description: a very basic melange example
 environment:
   contents:
-    repositories:
-      - https://dl-cdn.alpinelinux.org/alpine/edge/main
     packages:
-      - alpine-baselayout-data
       - busybox
 pipeline:
   - runs: |

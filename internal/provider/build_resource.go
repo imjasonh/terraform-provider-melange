@@ -41,6 +41,7 @@ type BuildResourceModel struct {
 	Config         types.Object `tfsdk:"config"`
 	ConfigContents types.String `tfsdk:"config_contents"`
 	Id             types.String `tfsdk:"id"`
+	ForceUpdate    types.Bool   `tfsdk:"force_update"`
 }
 
 func (r *BuildResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -61,6 +62,10 @@ func (r *BuildResource) Schema(ctx context.Context, req resource.SchemaRequest, 
 			"config_contents": schema.StringAttribute{
 				MarkdownDescription: "The raw contents of the melange configuration.",
 				Required:            true,
+			},
+			"force_update": schema.BoolAttribute{
+				MarkdownDescription: "Force a rebuild of the package, even if it already exists.",
+				Optional:            true,
 			},
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -174,26 +179,17 @@ func (r *BuildResource) doBuild(ctx context.Context, data BuildResourceModel) er
 		return fmt.Errorf("assigning value: %v", diags.Errors())
 	}
 
-	// TODO: support force-overwrite, so you don't have to rm the package or bump the epoch while testing locally.
-
 	var bcs []*build.Build
 	for _, arch := range cfg.Environment.Archs {
-		// See if we already have the package built.
-		apk := fmt.Sprintf("%s-%s-r%d.apk", cfg.Package.Name, cfg.Package.Version, cfg.Package.Epoch)
+		// See if we already have the package built, and skip if so -- unless force_update is true.
+		id := fmt.Sprintf("%s-%s-r%d", cfg.Package.Name, cfg.Package.Version, cfg.Package.Epoch)
+		apk := id + ".apk"
 		apkPath := filepath.Join("./packages", arch.ToAPK(), apk)
-		if _, err := os.Stat(apkPath); err == nil {
-			tflog.Trace(ctx, fmt.Sprintf("skipping %s, already built", apkPath))
-			continue
-		}
-
-		// TODO: --dir
-		sdir := filepath.Join(r.popts.dir, cfg.Package.Name)
-		if _, err := os.Stat(sdir); os.IsNotExist(err) {
-			if err := os.MkdirAll(sdir, os.ModePerm); err != nil {
-				return fmt.Errorf("creating source directory %s: %v", sdir, err)
+		if !data.ForceUpdate.ValueBool() {
+			if _, err := os.Stat(apkPath); err == nil {
+				tflog.Trace(ctx, fmt.Sprintf("skipping %s, already built", apkPath))
+				continue
 			}
-		} else if err != nil {
-			return fmt.Errorf("creating source directory: %v", err)
 		}
 
 		// Write the config to a temp file.
@@ -205,21 +201,40 @@ func (r *BuildResource) doBuild(ctx context.Context, data BuildResourceModel) er
 		if err := os.WriteFile(tmp.Name(), []byte(data.ConfigContents.ValueString()), 0644); err != nil {
 			return fmt.Errorf("writing config to temporary file: %v", err)
 		}
-
 		tflog.Trace(ctx, fmt.Sprintf("will build %s for %s", cfg.Package.Name, arch))
-		bc, err := build.New(ctx,
-			build.WithArch(arch),
+		opts := []build.Option{build.WithArch(arch),
 			build.WithConfig(tmp.Name()),
+			build.WithExtraRepos(r.popts.repositories),
+			build.WithExtraKeys(r.popts.keyring),
 			build.WithPipelineDir(filepath.Join(r.popts.dir, "pipelines")),
-			//build.WithEnvFile(filepath.Join(p.opts.dir, fmt.Sprintf("build-%s.env", arch)), // TODO: ignore if it doesn't exist.
 			build.WithOutDir(filepath.Join(r.popts.dir, "packages")),
-			//build.WithSigningKey(filepath.Join(r.popts.dir, "local-melange.rsa")), // TODO: ignore if it doesn't exist.
-			build.WithRunner("docker"), // TODO
-			//build.WithNamespace("wolfi"), // TODO
-			build.WithLogPolicy([]string{"builtin:stderr"}), // TODO: log dir instead, TF will swallow stderr
-			build.WithSourceDir(sdir),
+			build.WithRunner(r.popts.runner),
+			build.WithCacheDir(filepath.Join(r.popts.dir, "melange-cache")),
+			// TF swallows logs, so write logs to a file.
+			build.WithLogPolicy([]string{filepath.Join(r.popts.dir, "packages", arch.ToAPK(), id+".log")}),
 			build.WithGenerateIndex(true),
-		)
+		}
+		// Add source dir if it exists.
+		srcdir := filepath.Join(r.popts.dir, cfg.Package.Name)
+		if _, err := os.Stat(srcdir); err == nil {
+			opts = append(opts, build.WithSourceDir(srcdir))
+		}
+		// Add signing key if it exists.
+		signingKey := filepath.Join(r.popts.dir, r.popts.signingKey)
+		if _, err := os.Stat(signingKey); err == nil {
+			opts = append(opts, build.WithSigningKey(signingKey))
+		}
+		// Add env file if it exists.
+		envFile := filepath.Join(r.popts.dir, fmt.Sprintf("build-%s.env", arch))
+		if _, err := os.Stat(envFile); err == nil {
+			opts = append(opts, build.WithEnvFile(envFile))
+		}
+		// Add namespace if it's set.
+		if r.popts.namespace != "" {
+			opts = append(opts, build.WithNamespace(r.popts.namespace))
+		}
+
+		bc, err := build.New(ctx, opts...)
 		if err != nil {
 			return fmt.Errorf("building %s for %s: %w", cfg.Package.Name, arch, err)
 		}

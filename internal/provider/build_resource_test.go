@@ -28,7 +28,9 @@ func TestMain(m *testing.M) {
 
 var providerFactories = map[string]func() (tfprotov6.ProviderServer, error){
 	"melange": providerserver.NewProtocol6WithError(&Provider{
-		archs: []string{runtime.GOARCH},
+		archs:        []string{runtime.GOARCH},
+		repositories: []string{"https://packages.wolfi.dev/os"},
+		keyring:      []string{"https://packages.wolfi.dev/os/wolfi-signing.rsa.pub"},
 	}),
 }
 
@@ -50,7 +52,7 @@ resource "melange_build" "build" {
 			Check: resource.ComposeAggregateTestCheckFunc(
 				resource.TestCheckResourceAttr("melange_build.build", "config.package.name", "minimal"),
 				resource.TestCheckResourceAttr("melange_build.build", "config.package.epoch", "3"),
-				resource.TestCheckResourceAttr("melange_build.build", "id", "2966ff23365b2bfb14798021109424102419b989b044778d5484297ade1b201b"),
+				resource.TestCheckResourceAttr("melange_build.build", "id", "100ffaf3d06713d2737fdcbbb2176ba96161671fac4cc2d1b84000edffd187f3"),
 			),
 		}},
 	})
@@ -119,7 +121,7 @@ resource "melange_build" "build" {
 			Check: resource.ComposeAggregateTestCheckFunc(
 				resource.TestCheckResourceAttr("melange_build.build", "config.package.name", "minimal"),
 				resource.TestCheckResourceAttr("melange_build.build", "config.package.epoch", "4"),
-				resource.TestCheckResourceAttr("melange_build.build", "id", "1e44061d052789d741503299f4bb0fa37311dfb9df24f373994e6b95c0fe664c"),
+				resource.TestCheckResourceAttr("melange_build.build", "id", "35a03ba74b6643966e4baabda5544d9da90f1b48fdb96e69d16a39a8c971d972"),
 			),
 		}},
 	})

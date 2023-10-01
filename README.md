@@ -1,22 +1,26 @@
-# TODO: `terraform-provider-melange`
+# Terraform Provider for [`melange`](https://github.com/chainguard-dev/melange)
+
+🚨 **This is a work in progress.** 🚨
+
+https://registry.terraform.io/providers/chainguard-dev/melange
 
 ### Installing
 
-```
+```hcl
 terraform {
   required_providers {
-    melange = { source  = "imjasonh/melange" }
+    melange = { source  = "chainguard-dev/melange" }
   }
 }
 ```
 
 Then `terraform init -upgrade`.
 
-(This is not yet published; it will be published under `chainguard-dev` when it's ready)
+(This is not yet published)
 
 ### Build a single package
 
-```
+```hcl
 provider "melange" {
     archs              = ["x86_64", "aarch64"]
     extra_repositories = ["https://packages.wolfi.dev/os"]
@@ -39,12 +43,12 @@ After applying this config, `packages/$ARCH/package-0.0.1-rX.apk` will be built,
 
 ### Build a graph of inter-dependent Melange configs
 
-```
+```hcl
 data "melange_graph" "graph" {
     files = fileset(path.module, "*.yaml")
 }
 
-resource "melange_build" "foo" {
+resource "melange_build" "packages" {
     for_each = data.melange_graph.graph.configs
     depends_on = data.melange_graph.graph.deps[each.key]
 
@@ -59,7 +63,7 @@ This will crawl a collection of Melange config files, construct a graph of the o
 
 ### Build a package locally, then build it into an image using `apko_build`
 
-```
+```hcl
 data "melange_config" "config" {
     config_contents = file("package.yaml")
 }
@@ -86,3 +90,21 @@ resource "apko_build" "image" {
 ```
 
 (This is not yet tested)
+
+### Build and upload a package to GCS
+
+```hcl
+resource "google_storage_bucket_object" "packages" {
+    depends_on = [melange_build.packages]
+    for_each = fileset("packages/**/*.apk")
+
+    name   = "os/${each.key}"
+    bucket = "blah-blah-example-packages"
+}
+```
+
+(This is not yet tested)
+
+### TODO
+
+- Use a signing key from GCP Secret Manager or KMS

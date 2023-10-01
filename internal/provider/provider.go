@@ -29,11 +29,14 @@ type ProviderModel struct {
 	ExtraKeyring      []string              `tfsdk:"extra_keyring"`
 	DefaultArchs      []string              `tfsdk:"default_archs"`
 	Dir               basetypes.StringValue `tfsdk:"dir"`
+	SigningKey        basetypes.StringValue `tfsdk:"signing_key"`
+	Runner            basetypes.StringValue `tfsdk:"runner"`
+	Namespace         basetypes.StringValue `tfsdk:"namespace"`
 }
 
 type ProviderOpts struct {
-	repositories, keyring, archs []string
-	dir                          string
+	repositories, keyring, archs       []string
+	dir, signingKey, runner, namespace string
 }
 
 func (p *Provider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -63,6 +66,18 @@ func (p *Provider) Schema(ctx context.Context, req provider.SchemaRequest, resp 
 				Description: "Directory to use for building packages",
 				Optional:    true,
 			},
+			"signing_key": schema.StringAttribute{
+				Description: "The path to the RSA private key used to sign the package.",
+				Optional:    true,
+			},
+			"runner": schema.StringAttribute{
+				Description: "The runner to use for running the build",
+				Optional:    true,
+			},
+			"namespace": schema.StringAttribute{
+				Description: "The namespace to use for the package",
+				Optional:    true,
+			},
 		},
 	}
 }
@@ -74,12 +89,25 @@ func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest,
 		return
 	}
 
+	if data.Dir.ValueString() == "" {
+		data.Dir = basetypes.NewStringValue(".")
+	}
+	if data.SigningKey.ValueString() == "" {
+		data.SigningKey = basetypes.NewStringValue("local-melange.rsa")
+	}
+	if data.Runner.ValueString() == "" {
+		data.Runner = basetypes.NewStringValue("docker")
+	}
+
 	opts := &ProviderOpts{
 		// This is only for testing, so we can inject provider config
 		repositories: append(p.repositories, data.ExtraRepositories...),
 		keyring:      append(p.keyring, data.ExtraKeyring...),
 		archs:        append(p.archs, data.DefaultArchs...),
 		dir:          data.Dir.ValueString(),
+		signingKey:   data.SigningKey.ValueString(),
+		runner:       data.Runner.ValueString(),
+		namespace:    data.Namespace.ValueString(),
 	}
 
 	// Make provider opts available to resources and data sources.
