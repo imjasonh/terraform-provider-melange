@@ -20,6 +20,7 @@ data "melange_config" "minimal" {
 package:
   name: minimal
   version: 0.0.1
+  epoch: 3
   description: a very basic melange example
 environment:
   contents:
@@ -33,16 +34,14 @@ pipeline:
 EOF
 }`,
 			Check: resource.ComposeAggregateTestCheckFunc(
-				resource.TestCheckResourceAttr("data.melange_config.minimal", "package.name", "minimal"),
-				resource.TestCheckResourceAttr("data.melange_config.minimal", "package.version", "0.0.1"),
-				resource.TestCheckResourceAttr("data.melange_config.minimal", "package.description", "a very basic melange example"),
-				resource.TestCheckResourceAttr("data.melange_config.minimal", "environment.contents.repositories.#", "1"),
-				resource.TestCheckResourceAttr("data.melange_config.minimal", "environment.contents.repositories.0", "https://dl-cdn.alpinelinux.org/alpine/edge/main"),
-				resource.TestCheckResourceAttr("data.melange_config.minimal", "environment.contents.packages.#", "2"),
-				resource.TestCheckResourceAttr("data.melange_config.minimal", "environment.contents.packages.0", "alpine-baselayout-data"),
-				resource.TestCheckResourceAttr("data.melange_config.minimal", "environment.contents.packages.1", "busybox"),
-				resource.TestCheckResourceAttr("data.melange_config.minimal", "pipeline.#", "1"),
-				resource.TestCheckResourceAttr("data.melange_config.minimal", "pipeline.0.runs", "echo \"hello\"\n"),
+				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.package.name", "minimal"),
+				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.package.version", "0.0.1"),
+				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.package.epoch", "3"),
+				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.environment.contents.repositories.#", "1"),
+				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.environment.contents.repositories.0", "https://dl-cdn.alpinelinux.org/alpine/edge/main"),
+				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.environment.contents.packages.#", "2"),
+				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.environment.contents.packages.0", "alpine-baselayout-data"),
+				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.environment.contents.packages.1", "busybox"),
 			),
 		}},
 	})

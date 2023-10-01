@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 
 	apkotypes "chainguard.dev/apko/pkg/build/types"
-	"chainguard.dev/melange/pkg/config"
 	"github.com/chainguard-dev/terraform-provider-apko/reflect"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -22,7 +21,7 @@ import (
 var configSchema basetypes.ObjectType
 
 func init() {
-	sch, err := reflect.GenerateType(config.Configuration{})
+	sch, err := reflect.GenerateType(Configuration{})
 	if err != nil {
 		panic(err)
 	}
@@ -96,8 +95,8 @@ func (d *ConfigDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		return
 	}
 
-	var cfg config.Configuration
-	if err := yaml.UnmarshalStrict([]byte(data.ConfigContents.ValueString()), &cfg); err != nil {
+	var cfg Configuration
+	if err := yaml.Unmarshal([]byte(data.ConfigContents.ValueString()), &cfg); err != nil {
 		resp.Diagnostics.AddError("Unable to parse melange configuration", err.Error())
 		return
 	}

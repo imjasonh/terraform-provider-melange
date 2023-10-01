@@ -30,6 +30,7 @@ type GraphDataSource struct {
 // GraphDataSourceModel describes the data source data model.
 type GraphDataSourceModel struct {
 	Configs []types.Object `tfsdk:"configs"`
+	Deps    types.Map      `tfsdk:"deps"`
 	Id      types.String   `tfsdk:"id"`
 }
 

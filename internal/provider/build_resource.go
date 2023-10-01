@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 
 	"chainguard.dev/melange/pkg/build"
-	"chainguard.dev/melange/pkg/config"
 	"github.com/chainguard-dev/terraform-provider-apko/reflect"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -39,8 +38,9 @@ type BuildResource struct {
 
 // BuildResourceModel describes the resource data model.
 type BuildResourceModel struct {
-	Config types.Object `tfsdk:"config"`
-	Id     types.String `tfsdk:"id"`
+	Config         types.Object `tfsdk:"config"`
+	ConfigContents types.String `tfsdk:"config_contents"`
+	Id             types.String `tfsdk:"id"`
 }
 
 func (r *BuildResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -57,6 +57,10 @@ func (r *BuildResource) Schema(ctx context.Context, req resource.SchemaRequest, 
 				MarkdownDescription: "Parsed melange config",
 				Required:            true,
 				AttributeTypes:      configSchema.AttrTypes,
+			},
+			"config_contents": schema.StringAttribute{
+				MarkdownDescription: "The raw contents of the melange configuration.",
+				Required:            true,
 			},
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -88,7 +92,7 @@ func (r *BuildResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
-	id, err := doBuild(ctx, data)
+	id, err := r.doBuild(ctx, data)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", err.Error())
 		return
@@ -138,8 +142,8 @@ func (r *BuildResource) ImportState(ctx context.Context, req resource.ImportStat
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func doBuild(ctx context.Context, data BuildResourceModel) (string, error) {
-	var cfg config.Configuration
+func (r *BuildResource) doBuild(ctx context.Context, data BuildResourceModel) (string, error) {
+	var cfg Configuration
 	if diags := reflect.AssignValue(data.Config, &cfg); diags.HasError() {
 		return "", fmt.Errorf("assigning value: %v", diags.Errors())
 	}
@@ -157,7 +161,7 @@ func doBuild(ctx context.Context, data BuildResourceModel) (string, error) {
 		}
 
 		// TODO: --dir
-		sdir := filepath.Join("./", cfg.Package.Name)
+		sdir := filepath.Join(r.popts.dir, cfg.Package.Name)
 		if _, err := os.Stat(sdir); os.IsNotExist(err) {
 			if err := os.MkdirAll(sdir, os.ModePerm); err != nil {
 				return "", fmt.Errorf("creating source directory %s: %v", sdir, err)
@@ -166,19 +170,29 @@ func doBuild(ctx context.Context, data BuildResourceModel) (string, error) {
 			return "", fmt.Errorf("creating source directory: %v", err)
 		}
 
+		// Write the config to a temp file.
+		// TODO(jason): This is kind of gross, but Melange's build API requires a file path.
+		tmp, err := os.CreateTemp("", fmt.Sprintf("%s-*.yaml", cfg.Package.Name))
+		if err != nil {
+			return "", fmt.Errorf("creating temporary file: %v", err)
+		}
+		if err := os.WriteFile(tmp.Name(), []byte(data.ConfigContents.ValueString()), 0644); err != nil {
+			return "", fmt.Errorf("writing config to temporary file: %v", err)
+		}
+
 		tflog.Trace(ctx, fmt.Sprintf("will build %s for %s", cfg.Package.Name, arch))
 		bc, err := build.New(ctx,
 			build.WithArch(arch),
-			// TODO: Need to either write this file, or make Melange accept the decoded config, since the config might be coming from HCL.
-			build.WithConfig(cfg.Package.Name+".yaml"),
-			build.WithPipelineDir("./pipelines"),                 // TODO: --dir
-			build.WithEnvFile(fmt.Sprintf("build-%s.env", arch)), // TODO: --dir
-			build.WithOutDir("./packages"),                       // TODO: --dir
-			//build.WithSigningKey(filepath.Join(t.dir, "local-melange.rsa")), // TODO
-			//build.WithRunner("docker"), // TODO
+			build.WithConfig(tmp.Name()),
+			build.WithPipelineDir(filepath.Join(r.popts.dir, "pipelines")),
+			//build.WithEnvFile(filepath.Join(p.opts.dir, fmt.Sprintf("build-%s.env", arch)), // TODO: ignore if it doesn't exist.
+			build.WithOutDir(filepath.Join(r.popts.dir, "packages")),
+			//build.WithSigningKey(filepath.Join(r.popts.dir, "local-melange.rsa")), // TODO: ignore if it doesn't exist.
+			build.WithRunner("docker"), // TODO
 			//build.WithNamespace("wolfi"), // TODO
 			build.WithLogPolicy([]string{"builtin:stderr"}), // TODO: log dir instead, TF will swallow stderr
 			build.WithSourceDir(sdir),
+			build.WithGenerateIndex(true),
 		)
 		if err != nil {
 			return "", fmt.Errorf("building %s for %s: %w", cfg.Package.Name, arch, err)

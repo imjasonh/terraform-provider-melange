@@ -25,13 +25,15 @@ type Provider struct {
 
 // ProviderModel describes the provider data model.
 type ProviderModel struct {
-	ExtraRepositories []string `tfsdk:"extra_repositories"`
-	ExtraKeyring      []string `tfsdk:"extra_keyring"`
-	DefaultArchs      []string `tfsdk:"default_archs"`
+	ExtraRepositories []string              `tfsdk:"extra_repositories"`
+	ExtraKeyring      []string              `tfsdk:"extra_keyring"`
+	DefaultArchs      []string              `tfsdk:"default_archs"`
+	Dir               basetypes.StringValue `tfsdk:"dir"`
 }
 
 type ProviderOpts struct {
 	repositories, keyring, archs []string
+	dir                          string
 }
 
 func (p *Provider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -57,6 +59,10 @@ func (p *Provider) Schema(ctx context.Context, req provider.SchemaRequest, resp 
 				Optional:    true,
 				ElementType: basetypes.StringType{},
 			},
+			"dir": schema.StringAttribute{
+				Description: "Directory to use for building packages",
+				Optional:    true,
+			},
 		},
 	}
 }
@@ -73,6 +79,7 @@ func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest,
 		repositories: append(p.repositories, data.ExtraRepositories...),
 		keyring:      append(p.keyring, data.ExtraKeyring...),
 		archs:        append(p.archs, data.DefaultArchs...),
+		dir:          data.Dir.ValueString(),
 	}
 
 	// Make provider opts available to resources and data sources.
