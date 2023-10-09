@@ -8,11 +8,18 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"github.com/wolfi-dev/wolfictl/pkg/dag"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -29,9 +36,9 @@ type GraphDataSource struct {
 
 // GraphDataSourceModel describes the data source data model.
 type GraphDataSourceModel struct {
-	Configs []types.Object `tfsdk:"configs"`
-	Deps    types.Map      `tfsdk:"deps"`
-	Id      types.String   `tfsdk:"id"`
+	Dir  types.String `tfsdk:"dir"`
+	Deps types.Map    `tfsdk:"deps"`
+	Id   types.String `tfsdk:"id"`
 }
 
 func (d *GraphDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -44,12 +51,9 @@ func (d *GraphDataSource) Schema(ctx context.Context, req datasource.SchemaReque
 		MarkdownDescription: "Graph data source",
 
 		Attributes: map[string]schema.Attribute{
-			"configs": schema.ListAttribute{
-				MarkdownDescription: "List of configs",
-				Required:            true,
-				ElementType: basetypes.ObjectType{
-					AttrTypes: configSchema.AttrTypes,
-				},
+			"dir": schema.StringAttribute{
+				MarkdownDescription: "Dir to load configs from (overrides provider dir)",
+				Optional:            true,
 			},
 			"deps": schema.MapAttribute{
 				MarkdownDescription: "Map of dependencies: this -> [needs]",
@@ -87,9 +91,73 @@ func (d *GraphDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 		return
 	}
 
-	// ID is the sha256 of the JSON-serialized input configs,
-	// to ensure the data source changes if any config changes.
-	b, err := json.Marshal(data.Configs)
+	dir := d.popts.dir
+	if data.Dir.ValueString() != "" {
+		dir = data.Dir.ValueString()
+	}
+
+	tflog.Trace(ctx, fmt.Sprintf("dir: %s", dir))
+
+	pkgs, err := dag.NewPackages(os.DirFS(dir), dir, filepath.Join(dir, "pipelines"))
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("failed to load packages: %v", err))
+		return
+	}
+	if len(pkgs.Packages()) == 0 {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("no packages found in %s", dir))
+		return
+	}
+
+	g, err := dag.NewGraph(pkgs,
+		dag.WithRepos(d.popts.repositories...),
+		dag.WithKeys(d.popts.keyring...),
+	)
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("failed to build graph: %v", err))
+		return
+	}
+
+	tflog.Trace(ctx, fmt.Sprintf("configs: %v", pkgs.PackageNames()))
+
+	// Only include local packages
+	g, err = g.Filter(dag.FilterLocal())
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("failed to filter graph to local packages: %v", err))
+		return
+	}
+	// Only return main packages (configs)
+	g, err = g.Filter(dag.OnlyMainPackages(pkgs))
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("failed to filter graph to configs: %v", err))
+		return
+	}
+	m, err := g.Graph.AdjacencyMap()
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("failed to get graph adjacency map: %v", err))
+		return
+	}
+	out := map[string]attr.Value{}
+	for k, v := range m {
+		k, _, _ := strings.Cut(k, ":")
+		var vels []string
+		for vv := range v {
+			vv, _, _ := strings.Cut(vv, ":")
+			vels = append(vels, vv)
+		}
+		sort.Strings(vels)
+		var els []attr.Value
+		for _, vv := range vels {
+			els = append(els, basetypes.NewStringValue(vv))
+		}
+		out[k] = basetypes.NewListValueMust(basetypes.StringType{}, els)
+	}
+	data.Deps = basetypes.NewMapValueMust(basetypes.ListType{
+		ElemType: basetypes.StringType{},
+	}, out)
+
+	// ID is the sha256 of the JSON-serialized dep graph,
+	// to ensure the data source changes if any config changes in a way that changes the graph.
+	b, err := json.Marshal(data.Deps)
 	if err != nil {
 		resp.Diagnostics.AddError("Client Error", "failed to marshal configs")
 		return

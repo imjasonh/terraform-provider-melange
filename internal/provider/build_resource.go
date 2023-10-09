@@ -201,7 +201,9 @@ func (r *BuildResource) doBuild(ctx context.Context, data BuildResourceModel) er
 		if err := os.WriteFile(tmp.Name(), []byte(data.ConfigContents.ValueString()), 0644); err != nil {
 			return fmt.Errorf("writing config to temporary file: %v", err)
 		}
-		tflog.Trace(ctx, fmt.Sprintf("will build %s for %s", cfg.Package.Name, arch))
+		logs := filepath.Join(r.popts.dir, "packages", arch.ToAPK(), id+".log")
+		tflog.Trace(ctx, fmt.Sprintf("will build %s for %s; logs at %s", cfg.Package.Name, arch, logs))
+
 		opts := []build.Option{build.WithArch(arch),
 			build.WithConfig(tmp.Name()),
 			build.WithExtraRepos(r.popts.repositories),
@@ -210,8 +212,7 @@ func (r *BuildResource) doBuild(ctx context.Context, data BuildResourceModel) er
 			build.WithOutDir(filepath.Join(r.popts.dir, "packages")),
 			build.WithRunner(r.popts.runner),
 			build.WithCacheDir(filepath.Join(r.popts.dir, "melange-cache")),
-			// TF swallows logs, so write logs to a file.
-			build.WithLogPolicy([]string{filepath.Join(r.popts.dir, "packages", arch.ToAPK(), id+".log")}),
+			build.WithLogPolicy([]string{logs}), // TF swallows logs, so write logs to a file instead.
 			build.WithGenerateIndex(true),
 		}
 		// Add source dir if it exists.

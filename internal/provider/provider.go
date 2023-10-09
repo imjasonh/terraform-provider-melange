@@ -5,6 +5,7 @@ package provider
 
 import (
 	"context"
+	"os"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -18,8 +19,8 @@ var _ provider.Provider = &Provider{}
 
 // Provider defines the provider implementation.
 type Provider struct {
-	version string
-
+	version                      string
+	dir                          string
 	repositories, keyring, archs []string
 }
 
@@ -89,14 +90,18 @@ func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest,
 		return
 	}
 
-	if data.Dir.ValueString() == "" {
-		data.Dir = basetypes.NewStringValue(".")
+	if dir := os.Getenv("TF_MELANGE_OUT"); p.dir == "" && dir != "" {
+		p.dir = dir
 	}
+
 	if data.SigningKey.ValueString() == "" {
 		data.SigningKey = basetypes.NewStringValue("local-melange.rsa")
 	}
 	if data.Runner.ValueString() == "" {
 		data.Runner = basetypes.NewStringValue("docker")
+	}
+	if data.Dir.ValueString() == "" {
+		data.Dir = basetypes.NewStringValue(p.dir)
 	}
 
 	opts := &ProviderOpts{

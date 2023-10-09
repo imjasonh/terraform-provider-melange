@@ -50,7 +50,7 @@ data "melange_graph" "graph" {
 
 resource "melange_build" "packages" {
     for_each = data.melange_graph.graph.configs
-    depends_on = data.melange_graph.graph.deps[each.key]
+    depends_on = [data.melange_graph.graph.deps[each.key]]
 
     config          = each.key
     config_contents = data.melange_graph.graph[each.key].config_contents

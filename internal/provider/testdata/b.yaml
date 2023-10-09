@@ -1,0 +1,15 @@
+package:
+  name: b
+  version: 0.0.1
+  epoch: 0
+  description: basic graph example
+environment:
+  contents:
+    packages:
+      - busybox
+      - c
+      - d
+pipeline:
+  - runs: |
+      mkdir -p ${{targets.destdir}}/usr/bin
+      echo "b" > ${{targets.destdir}}/usr/bin/b.txt

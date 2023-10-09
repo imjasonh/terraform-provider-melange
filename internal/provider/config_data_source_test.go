@@ -11,7 +11,7 @@ import (
 
 func TestAccConfigDataSource(t *testing.T) {
 	resource.Test(t, resource.TestCase{
-		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		ProtoV6ProviderFactories: providerFactories,
 		Steps: []resource.TestStep{{
 			// based on https://github.com/chainguard-dev/melange/blob/main/examples/minimal.yaml
 			Config: `
@@ -24,10 +24,8 @@ package:
   description: a very basic melange example
 environment:
   contents:
-    repositories:
-      - https://dl-cdn.alpinelinux.org/alpine/edge/main
     packages:
-      - alpine-baselayout-data
+      - wolfi-baselayout
       - busybox
 pipeline:
   - runs: echo "hello"
@@ -38,9 +36,9 @@ EOF
 				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.package.version", "0.0.1"),
 				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.package.epoch", "3"),
 				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.environment.contents.repositories.#", "1"),
-				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.environment.contents.repositories.0", "https://dl-cdn.alpinelinux.org/alpine/edge/main"),
+				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.environment.contents.repositories.0", "https://packages.wolfi.dev/os"),
 				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.environment.contents.packages.#", "2"),
-				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.environment.contents.packages.0", "alpine-baselayout-data"),
+				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.environment.contents.packages.0", "wolfi-baselayout"),
 				resource.TestCheckResourceAttr("data.melange_config.minimal", "config.environment.contents.packages.1", "busybox"),
 			),
 		}},
