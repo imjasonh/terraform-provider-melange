@@ -12,7 +12,7 @@ require (
 	chainguard.dev/melange v0.4.1-0.20230929201727-f992e1b1cecf
 	github.com/chainguard-dev/terraform-provider-apko v0.10.6
 	github.com/hashicorp/terraform-plugin-docs v0.16.0
-	github.com/hashicorp/terraform-plugin-framework v1.4.0
+	github.com/hashicorp/terraform-plugin-framework v1.4.1
 	github.com/hashicorp/terraform-plugin-go v0.19.0
 	github.com/hashicorp/terraform-plugin-log v0.9.0
 	github.com/hashicorp/terraform-plugin-testing v1.5.1
